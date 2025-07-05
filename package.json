@@ -153,12 +153,12 @@
             },
             {
                 "command": "text-tables.moveColRight",
-                "key": "alt+right",
+                "key": "ctrl+alt+right",
                 "when": "tableMode"
             },
             {
                 "command": "text-tables.moveColLeft",
-                "key": "alt+left",
+                "key": "ctrl+alt+left",
                 "when": "tableMode"
             },
             {
