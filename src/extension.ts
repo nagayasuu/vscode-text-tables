@@ -123,26 +123,53 @@ function registerTableCommand(command: string, callback: TableCommandCallback, o
         const editor = vscode.window.activeTextEditor;
 
         if (isUndefined(editor)) {
+            console.log('Debug: No active editor');
             return;
         }
+
+        console.log('Debug: Command', command, 'called on line', editor.selection.start.line);
 
         const tableRange = locator.locate(editor.document, editor.selection.start.line);
+        console.log('Debug: Table range:', tableRange);
+        
         if (isUndefined(tableRange)) {
+            console.log('Debug: No table range found');
             return;
         }
-        const selectedText = editor.document.getText(tableRange);
+        
+        // For single-line tables, ensure we always capture the entire line
+        let adjustedTableRange = tableRange;
+        if (tableRange.start.line === tableRange.end.line) {
+            const line = editor.document.lineAt(tableRange.start.line);
+            const lineText = line.text.trim();
+            if (lineText.startsWith('|')) {
+                console.log('Debug: Single-line table detected, adjusting range to entire line');
+                adjustedTableRange = new vscode.Range(
+                    new vscode.Position(tableRange.start.line, 0),
+                    new vscode.Position(tableRange.end.line, line.text.length)
+                );
+                console.log('Debug: Adjusted table range:', adjustedTableRange);
+            }
+        }
+        
+        const selectedText = editor.document.getText(adjustedTableRange);
+        console.log('Debug: Selected text for parsing:', JSON.stringify(selectedText));
+        
         const table = parser.parse(selectedText);
+        console.log('Debug: Parsed table:', table ? {rows: table.rows.length, cols: table.cols.length} : 'null');
 
         if (isUndefined(table)) {
+            console.log('Debug: Failed to parse table');
             return;
         }
 
-        table.startLine = tableRange.start.line;
+        table.startLine = adjustedTableRange.start.line;
+        console.log('Debug: Table startLine set to:', table.startLine);
 
         if (options && options.format) {
-            await cmd.formatUnderCursor(editor, tableRange, table, stringifier);
+            await cmd.formatUnderCursor(editor, adjustedTableRange, table, stringifier);
         }
 
-        await callback(editor, tableRange, table);
+        await callback(editor, adjustedTableRange, table);
     });
 }

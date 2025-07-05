@@ -1,6 +1,7 @@
 import * as tt from './ttTable';
 import * as vscode from 'vscode';
 import { RowType } from './ttTable';
+import { padString } from './utils';
 
 const verticalSeparator = '|';
 const horizontalSeparator = '-';
@@ -51,17 +52,25 @@ export class MarkdownParser implements tt.Parser {
 
             const lastIndex = s.length - (s.endsWith(verticalSeparator) ? 1 : 0);
 
-            const values = s
-                .slice(1, lastIndex)
-                .split(verticalSeparator)
-                .map(x => x.trim());
+            let values: string[];
+            if (s.endsWith(verticalSeparator)) {
+                // Complete table row: | cell1 | cell2 |
+                values = s
+                    .slice(1, lastIndex)
+                    .split(verticalSeparator)
+                    .map(x => x.trim());
+            } else {
+                // Incomplete table row: | cell1 | cell2 | cell3
+                // Count the number of cells by splitting on |
+                const allParts = s.slice(1).split(verticalSeparator).map(x => x.trim());
+                values = allParts;
+            }
 
             result.addRow(tt.RowType.Data, values);
         }
 
-        if (result.rows.some(x => x.type === RowType.Separator)) {
-            result.cols.forEach(x => x.width = Math.max(x.width, 3));
-        }
+        // Recalculate column widths based on all data to ensure proper alignment
+        result.recalculateColumnWidths();
 
         return result;
     }
@@ -100,8 +109,8 @@ export class MarkdownStringifier implements tt.Stringifier {
 
     private dataRowReducer(cols: tt.ColDef[]): StringReducer {
         return (prev, cur, idx) => {
-            const pad = ' '.repeat(cols[idx].width - cur.length + 1);
-            return prev + ' ' + cur + pad + verticalSeparator;
+            const paddedValue = padString(cur, cols[idx].width);
+            return prev + ' ' + paddedValue + ' ' + verticalSeparator;
         };
     }
 
@@ -123,6 +132,7 @@ export class MarkdownStringifier implements tt.Stringifier {
 
 export class MarkdownLocator implements tt.Locator {
     locate(reader: tt.LineReader, lineNr: number): vscode.Range | undefined {
+        
         const isTableLikeString = (ln: number) => {
             if (ln < 0 || ln >= reader.lineCount) {
                 return false;
@@ -143,12 +153,28 @@ export class MarkdownLocator implements tt.Locator {
         }
 
         if (start === end) {
+            // Check if the current line itself is a table-like string
+            if (isTableLikeString(lineNr)) {
+                // Single line table - always include the entire line to avoid leftover characters
+                const line = reader.lineAt(lineNr);
+                const startPos = new vscode.Position(lineNr, 0);
+                const endPos = new vscode.Position(lineNr, line.text.length);
+                console.log('Debug: MarkdownLocator single line table range:', lineNr, '0 to', line.text.length);
+                console.log('Debug: MarkdownLocator line text:', JSON.stringify(line.text));
+                console.log('Debug: MarkdownLocator range positions:', startPos, 'to', endPos);
+                return new vscode.Range(startPos, endPos);
+            }
             return undefined;
         }
 
-        const startPos = reader.lineAt(start + 1).range.start;
-        const endPos = reader.lineAt(end - 1).range.end;
-
+        // Multiple line table - use the range of table lines
+        const endLine = reader.lineAt(end - 1);
+        
+        // For multi-line tables, ensure we capture the entire start and end lines
+        const startPos = new vscode.Position(start + 1, 0);
+        const endPos = new vscode.Position(end - 1, endLine.text.length);
+        
+        console.log('Debug: MarkdownLocator multi-line table range:', startPos, 'to', endPos);
         return new vscode.Range(startPos, endPos);
     }
 }
