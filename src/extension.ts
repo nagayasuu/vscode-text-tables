@@ -6,7 +6,6 @@ import * as cmd from './commands';
 import { OrgLocator, OrgParser, OrgStringifier } from './ttOrg';
 import { Locator, Parser, Stringifier, Table } from './ttTable';
 import { MarkdownLocator, MarkdownParser, MarkdownStringifier } from './ttMarkdown';
-import { isUndefined } from 'util';
 import { registerContext, ContextType, enterContext, exitContext, restoreContext } from './context';
 import * as cfg from './configuration';
 
@@ -80,7 +79,9 @@ export function activate(ctx: vscode.ExtensionContext) {
         await cmd.gotoNextCell(editor, range, table, stringifier);
     }));
 
-    ctx.subscriptions.push(registerTableCommand('text-tables.gotoPreviousCell', cmd.gotoPreviousCell, {format: true}));
+    ctx.subscriptions.push(registerTableCommand('text-tables.gotoPreviousCell', async (editor, range, table) => {
+        await cmd.gotoPreviousCell(editor, range, table, stringifier);
+    }));
     ctx.subscriptions.push(registerTableCommand('text-tables.nextRow', async (editor, range, table) => {
         await cmd.nextRow(editor, range, table, stringifier);
     }));
@@ -122,18 +123,13 @@ function registerTableCommand(command: string, callback: TableCommandCallback, o
     return vscode.commands.registerCommand(command, async () => {
         const editor = vscode.window.activeTextEditor;
 
-        if (isUndefined(editor)) {
-            console.log('Debug: No active editor');
+        if (editor === undefined) {
             return;
         }
 
-        console.log('Debug: Command', command, 'called on line', editor.selection.start.line);
-
         const tableRange = locator.locate(editor.document, editor.selection.start.line);
-        console.log('Debug: Table range:', tableRange);
         
-        if (isUndefined(tableRange)) {
-            console.log('Debug: No table range found');
+        if (tableRange === undefined) {
             return;
         }
         
@@ -143,28 +139,21 @@ function registerTableCommand(command: string, callback: TableCommandCallback, o
             const line = editor.document.lineAt(tableRange.start.line);
             const lineText = line.text.trim();
             if (lineText.startsWith('|')) {
-                console.log('Debug: Single-line table detected, adjusting range to entire line');
                 adjustedTableRange = new vscode.Range(
                     new vscode.Position(tableRange.start.line, 0),
                     new vscode.Position(tableRange.end.line, line.text.length)
                 );
-                console.log('Debug: Adjusted table range:', adjustedTableRange);
             }
         }
         
         const selectedText = editor.document.getText(adjustedTableRange);
-        console.log('Debug: Selected text for parsing:', JSON.stringify(selectedText));
-        
         const table = parser.parse(selectedText);
-        console.log('Debug: Parsed table:', table ? {rows: table.rows.length, cols: table.cols.length} : 'null');
 
-        if (isUndefined(table)) {
-            console.log('Debug: Failed to parse table');
+        if (table === undefined) {
             return;
         }
 
         table.startLine = adjustedTableRange.start.line;
-        console.log('Debug: Table startLine set to:', table.startLine);
 
         if (options && options.format) {
             await cmd.formatUnderCursor(editor, adjustedTableRange, table, stringifier);

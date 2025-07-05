@@ -139,6 +139,7 @@ export interface Parser {
 
 export interface Stringifier {
     stringify(table: Table): string;
+    stringifyWithIndent(table: Table, indent: string): string;
 }
 
 export interface Locator {

@@ -76,6 +76,21 @@ export class OrgStringifier implements tt.Stringifier {
         return result.join('\n');
     }
 
+    stringifyWithIndent(table: tt.Table, indent: string): string {
+        const tableText = this.stringify(table);
+        return tableText
+            .split('\n')
+            .map(line => {
+                // Don't indent empty lines
+                if (line.trim() === '') {
+                    return line;
+                }
+                // Add indentation to each table line
+                return indent + line;
+            })
+            .join('\n');
+    }
+
     private dataRowReducer(cols: tt.ColDef[]): StringReducer {
         return (prev, cur, idx) => {
             const paddedValue = padString(cur, cols[idx].width);
@@ -133,9 +148,7 @@ export class OrgLocator implements tt.Locator {
                 const line = reader.lineAt(lineNr);
                 const startPos = new vscode.Position(lineNr, 0);
                 const endPos = new vscode.Position(lineNr, line.text.length);
-                console.log('Debug: OrgLocator single line table range:', lineNr, '0 to', line.text.length);
-                console.log('Debug: OrgLocator line text:', JSON.stringify(line.text));
-                console.log('Debug: OrgLocator range positions:', startPos, 'to', endPos);
+
                 return new vscode.Range(startPos, endPos);
             }
             return undefined;
@@ -148,7 +161,7 @@ export class OrgLocator implements tt.Locator {
         const startPos = new vscode.Position(start + 1, 0);
         const endPos = new vscode.Position(end - 1, endLine.text.length);
 
-        console.log('Debug: OrgLocator multi-line table range:', startPos, 'to', endPos);
+
         return new vscode.Range(startPos, endPos);
     }
 }
