@@ -81,32 +81,6 @@ export function padString(str: string, targetWidth: number, char: string = ' '):
 /**
  * Debug function to analyze table structure and cursor positions
  */
-export function analyzeTableLine(line: string): void {
-    console.log('=== Table Line Analysis ===');
-    console.log('Line:', JSON.stringify(line));
-    console.log('Character positions:');
-    
-    for (let i = 0; i < line.length; i++) {
-        const char = line[i];
-        const code = char.charCodeAt(0);
-        const width = isWideCharacter(code) ? 2 : 1;
-        console.log(`Position ${i}: '${char}' (U+${code.toString(16).toUpperCase()}) width: ${width}`);
-    }
-    
-    // Find all | positions
-    const pipePositions: number[] = [];
-    for (let i = 0; i < line.length; i++) {
-        if (line[i] === '|') {
-            pipePositions.push(i);
-        }
-    }
-    console.log('Pipe positions:', pipePositions);
-    
-    // Calculate cell content positions
-    for (let i = 0; i < pipePositions.length - 1; i++) {
-        const cellStart = pipePositions[i] + 2; // | + space
-        const cellEnd = pipePositions[i + 1] - 1; // space before next |
-        const cellContent = line.slice(cellStart, cellEnd);
-        console.log(`Cell ${i}: start=${cellStart}, end=${cellEnd}, content='${cellContent}'`);
-    }
+export function analyzeTableLine(_line: string): void {
+    // Debug function - implementation removed for production
 }

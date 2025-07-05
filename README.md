@@ -1,93 +1,82 @@
 # Text Tables
 
-[![version][version-badge]][CHANGELOG]
-[![license][license-badge]][LICENSE]
-[![Build Status](https://travis-ci.org/rpeshkov/vscode-text-tables.svg?branch=master)](https://travis-ci.org/rpeshkov/vscode-text-tables)
+## vscode-text-tables Keybindings Reference
 
-![Text tables](icons/icon.png)
+### Basic Operations
 
-VSCode extension that brings the power of Emacs table editing.
+| Key | Command | Description |
+|-----|---------|-------------|
+| `Ctrl+Q Ctrl+Q` | `text-tables.tableModeOn/Off` | Toggle table mode ON/OFF |
+| `Ctrl+Q Ctrl+F` | `text-tables.formatUnderCursor` | Format table under cursor |
+| `Ctrl+Q Space` | `text-tables.clearCell` | Clear current cell |
 
-![Sample](doc/sample.gif)
+### Navigation (Table Mode Only)
 
-## Features
+> **Note**: The following keybindings only work when `tableMode` is active
 
-- Tables reformat
-- Easy table cells navigation
-- Support for [org](https://orgmode.org/manual/Built_002din-table-editor.html#Built_002din-table-editor) and [markdown](https://help.github.com/articles/organizing-information-with-tables/) tables
+| Key | Command | Description |
+|-----|---------|-------------|
+| `Tab` | `text-tables.gotoNextCell` | Move to next cell (creates new row if at last cell) |
+| `Shift+Tab` | `text-tables.gotoPreviousCell` | Move to previous cell |
+| `Enter` | `text-tables.nextRow` | Move to next row (creates new column if in header row) |
 
-## Activation
+### Table Editing (Table Mode Only)
 
-Extension is automatically activated when you open markdown or org file. If you want to use this extension in any other file, just trigger `Text Tables: Enable` command in command pallete.
+| Key | Command | Description |
+|-----|---------|-------------|
+| `Alt+↑` | `text-tables.moveRowUp` | Move current row up |
+| `Alt+↓` | `text-tables.moveRowDown` | Move current row down |
+| `Ctrl+Alt+→` | `text-tables.moveColRight` | Move current column right |
+| `Ctrl+Alt+←` | `text-tables.moveColLeft` | Move current column left |
 
-## Commands
+### Commands (No Keybinding)
 
-Extension provides several commands that are available in the Command Palette:
+The following commands are available through the Command Palette (`Ctrl+Shift+P`) but have no default keybindings:
 
-- `Text Tables: Enable` - enable extension.
-- `Text Tables: Create table` - create new table in cursor position.
-- `Text Tables: Format under cursor` - reformat the table under cursor.
-- `Text Tables: Enter table mode` - enter [table mode](#table-mode).
-- `Text Tables: Exit table mode` - exit [table mode](#table-mode).
-- `Text Tables: Go to next cell` - switch to next cell in current table.
-- `Text Tables: Go to previous cell` - switch to previous cell in current table.
-- `Text Tables: Clear cell` - clear cell under cursor.
+| Command | Description |
+|---------|-------------|
+| `Text Tables: Enable` | Enable the extension |
+| `Text Tables: Create table` | Create a new table |
 
-You can access all of the above commands from the command pallete (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>p</kbd> or <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>p</kbd>)
+### Conditional Keybindings
 
-## Table mode
+The extension uses contextual keybindings based on the following conditions:
 
-Table mode is the mode where some of the default keybindings have another action assigned.
+- **`when: tableMode`** - Only active when table mode is enabled
+- **`when: editorFocus && !tableMode`** - Only when editor is focused and table mode is disabled
+- **`when: editorFocus && tableMode`** - Only when editor is focused and table mode is enabled
 
-To enter table mode you may execute command `Text Tables: Enter table mode` from command palette or press <kbd>Ctrl</kbd>+<kbd>q</kbd> <kbd>Ctrl</kbd>+<kbd>q</kbd> shortcut to toggle mode. To control whether you're in table mode or not, see the icon in the status bar of Visual Studio Code:
+### Usage Examples
 
-![Table mode status](doc/table-mode-status.png)
+#### Enable Table Mode
+1. Place cursor inside a table
+2. Press `Ctrl+Q Ctrl+Q`
+3. "Table Mode" appears in the status bar
 
-When in table mode, <kbd>Tab</kbd> and <kbd>Shift</kbd>+<kbd>Tab</kbd> keybindings will navigate next/previous cell accordingly.
+#### Cell Navigation
+- `Tab`: Move to the right cell (creates new row if at the end)
+- `Shift+Tab`: Move to the left cell
+- `Enter`: Move to the cell below (creates new column if in header row)
 
-![Navigation](doc/navigation.gif)
+#### Table Formatting
+- `Ctrl+Q Ctrl+F`: Format the current table with proper alignment
 
-## Keybindings
+### Supported File Types
 
-- <kbd>Ctrl</kbd>+<kbd>q</kbd> <kbd>f</kbd> - format table under cursor.
-- <kbd>Ctrl</kbd>+<kbd>q</kbd> <kbd>space</kbd> - clear cell under cursor.
-- <kbd>Ctrl</kbd>+<kbd>q</kbd> <kbd>Ctrl</kbd>+<kbd>q</kbd> - toggle table mode.
+- Markdown (`.md`)
+- Org-mode (`.org`)
 
-### In table mode
+### Configuration
 
-- <kbd>Tab</kbd> - navigate to the next cell in table.
-- <kbd>Shift</kbd>+<kbd>Tab</kbd> - navigate to the previous cell in table.
+The extension behavior can be customized through settings:
 
-### Custom keybindings
+- `text-tables.mode`: `"markdown"` or `"org"` (default: `"markdown"`)
+- `text-tables.showStatus`: Show/hide status bar item (default: `true`)
 
-Extension introduces additional `tableMode` when-clause that you may use to define your own keybindings when in table mode.
+### Recent Improvements
 
-Sample keybinding:
-
-```json
-{
-    "key": "tab",
-    "command": "text-tables.gotoNextCell",
-    "when": "tableMode"
-}
-```
-
-## Settings
-
-This extension introduces some settings that you may setup in your user settings or workspace settings.
-
-Available settings:
-
-- `text-tables.mode` - sets the type of tables. Valid values are: `org` and `markdown`.
-- `text-tables.showStatus` - controls whether to show or not status item for table mode.
-
-## Contribution
-
-All contributions are welcome.
-
-If you found a bug or want to propose new feature for the extension, feel free to create an issue.
-
-[CHANGELOG]: ./CHANGELOG.md
-[LICENSE]: ./LICENSE
-[version-badge]: https://img.shields.io/badge/version-0.1.5-blue.svg
-[license-badge]: https://img.shields.io/badge/license-MIT-blue.svg
+This extension now includes enhanced support for:
+- Japanese and other wide characters (CJK)
+- Incomplete table rows
+- Accurate table range detection
+- Smart row/column addition

@@ -8,6 +8,14 @@
         ],
         "sourceMap": true,
         "rootDir": ".",
+        "moduleResolution": "node",
+        "esModuleInterop": true,
+        "allowSyntheticDefaultImports": true,
+        "resolveJsonModule": true,
+        "baseUrl": ".",
+        "paths": {
+            "@vscode/test-electron": ["./node_modules/@vscode/test-electron/out/index.d.ts"]
+        },
         /* Strict Type-Checking Option */
         "strict": true,   /* enable all strict type-checking options */
         /* Additional Checks */
@@ -15,6 +23,7 @@
         "noImplicitReturns": true, /* Report error when not all code paths in function return a value. */
         "noFallthroughCasesInSwitch": true, /* Report errors for fallthrough cases in switch statement. */
         "noUnusedParameters": true,  /* Report errors on unused parameters. */
+        "skipLibCheck": true /* Skip type checking of declaration files */
     },
     "exclude": [
         "node_modules",

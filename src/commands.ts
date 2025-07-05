@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
 import { Table, RowType, TableNavigator, Stringifier, Parser } from './ttTable';
-import { debugCursorMovement } from './debugUtils';
 
 /**
  * Create new table with specified rows and columns count in position of cursor
@@ -13,8 +12,37 @@ export async function createTable(rowsCount: number, colsCount: number, editor: 
     table.rows[1].type = RowType.Separator;
 
     const currentPosition = editor.selection.start;
-    await editor.edit(b => b.insert(currentPosition, stringifier.stringify(table)));
-    editor.selection = new vscode.Selection(currentPosition, currentPosition);
+    const currentLine = editor.document.lineAt(currentPosition.line);
+    
+    // Calculate indentation: get text before cursor position
+    const textBeforeCursor = currentLine.text.substring(0, currentPosition.character);
+    const indentMatch = textBeforeCursor.match(/^(\s*)/);
+    const indentation = indentMatch ? indentMatch[1] : '';
+    
+    // Generate table with indentation for each line
+    const tableText = stringifier.stringify(table);
+    const indentedTableText = tableText
+        .split('\n')
+        .map(line => {
+            // Don't indent empty lines
+            if (line.trim() === '') {
+                return line;
+            }
+            // Add indentation to each table line
+            return indentation + line;
+        })
+        .join('\n');
+    
+    // If we're not at the beginning of the line, add a newline before the table
+    const needsNewlineBefore = currentPosition.character > 0 && textBeforeCursor.trim() !== '';
+    const finalTableText = needsNewlineBefore ? '\n' + indentedTableText : indentedTableText;
+    
+    await editor.edit(b => b.insert(currentPosition, finalTableText));
+    
+    // Position cursor at the first cell of the new table
+    const newCursorLine = currentPosition.line + (needsNewlineBefore ? 1 : 0);
+    const firstCellPosition = new vscode.Position(newCursorLine, indentation.length + 2); // After "| "
+    editor.selection = new vscode.Selection(firstCellPosition, firstCellPosition);
 }
 
 /**
@@ -47,156 +75,142 @@ export async function moveRowUp(editor: vscode.TextEditor, _range: vscode.Range,
 export async function gotoNextCell(editor: vscode.TextEditor, range: vscode.Range, table: Table,
     stringifier: Stringifier) {
 
-    console.log('Debug: gotoNextCell called');
-    console.log('Debug: table rows:', table.rows.length, 'cols:', table.cols.length);
-
-    // Check if we're on an empty line that's not part of the table
+    // Fast path: check if we're on a valid table line
     const currentLine = editor.document.lineAt(editor.selection.start.line);
-    const currentLineText = currentLine.text.trim();
+    const currentLineText = currentLine.text;
     
-    if (currentLineText === '' || (!currentLineText.startsWith('|'))) {
-        console.log('Debug: Current line is empty or not a table line, not navigating');
+    // Early exit for non-table lines
+    if (!currentLineText.trim() || !currentLineText.includes('|')) {
         return;
     }
 
-    // First, format the table to ensure it's properly structured
+    // Always format table for consistency on Tab navigation
     await formatUnderCursor(editor, range, table, stringifier);
     
-    // Create navigator with updated document after formatting
-    const nav = new TableNavigator(table, editor.document);
-    console.log('Debug: Current cursor position:', editor.selection.start.line, editor.selection.start.character);
-
-    // Simple approach: Try to move to next cell first
-    const nextCellPosition = nav.nextCell(editor.selection.start);
-    console.log('Debug: Next cell position:', nextCellPosition ? `${nextCellPosition.line},${nextCellPosition.character}` : 'null');
+    // Recreate navigator after formatting to get accurate positions
+    const newNav = new TableNavigator(table, editor.document);
+    const newCurrentPos = editor.selection.start;
     
-    // Check if we're in the last cell and nextCell is wrapping around to the first cell
+    // Check if we're in the last cell using multiple methods for robustness
+    const isInLastCell = checkIfInLastCell(newNav, newCurrentPos, table);
+    
+    if (isInLastCell) {
+        // In last cell - add new row
+        await addNewRowAndMoveCursor(editor, range, table, stringifier);
+        return;
+    }
+    
+    // Try to navigate to next cell
+    const nextCellPosition = newNav.nextCell(newCurrentPos);
+    
     if (nextCellPosition) {
-        const currentPos = editor.selection.start;
+        // Check for wrap-around (when nextCell returns first cell of same or next row)
+        const isWrappingAround = nextCellPosition.line === newCurrentPos.line && 
+                                nextCellPosition.character <= newCurrentPos.character;
         
-        // If next cell position is before current position on the same line, it's wrapping around
-        const isWrappingAround = nextCellPosition.line === currentPos.line && 
-                                nextCellPosition.character < currentPos.character;
-        
-        if (isWrappingAround) {
-            console.log('Debug: Navigation is wrapping around - treating as last cell');
-            // No next cell available - add new row
+        if (!isWrappingAround) {
+            // Simple navigation
+            editor.selection = new vscode.Selection(nextCellPosition, nextCellPosition);
+            return;
+        } else {
+            // Wrap-around detected - add new row
             await addNewRowAndMoveCursor(editor, range, table, stringifier);
             return;
         }
-        
-        // Normal navigation: move to next cell
-        console.log('Debug: Moving to next cell');
-        editor.selection = new vscode.Selection(nextCellPosition, nextCellPosition);
-        return;
     }
     
     // No next cell available - add new row
-    console.log('Debug: No next cell found, adding new row');
     await addNewRowAndMoveCursor(editor, range, table, stringifier);
+}
+
+/**
+ * Check if current position is in the last cell of the table
+ */
+function checkIfInLastCell(nav: TableNavigator, currentPos: vscode.Position, table: Table): boolean {
+    // Method 1: Use navigator's isLastCell if available
+    try {
+        if ('isLastCell' in nav && typeof nav.isLastCell === 'function') {
+            return nav.isLastCell(currentPos);
+        }
+    } catch (e) {
+        // Fall through to alternative method
+    }
+    
+    // Method 2: Check if nextCell returns null/undefined or wraps around
+    const nextCellPos = nav.nextCell(currentPos);
+    if (!nextCellPos) {
+        return true; // No next cell means we're in the last cell
+    }
+    
+    // Method 3: Check if we're on the last row and last column
+    const currentRowIndex = currentPos.line - table.startLine;
+    const lastRowIndex = table.rows.length - 1;
+    
+    // If we're on the last data row
+    if (currentRowIndex === lastRowIndex || 
+        (currentRowIndex === lastRowIndex - 1 && table.rows[lastRowIndex].type === RowType.Separator)) {
+        
+        // Check if we're in the last column by comparing character positions
+        const isWrappingToBeginning = nextCellPos.line === currentPos.line && 
+                                     nextCellPos.character <= currentPos.character;
+        
+        if (isWrappingToBeginning) {
+            return true;
+        }
+    }
+    
+    return false;
 }
 
 async function addNewRowAndMoveCursor(editor: vscode.TextEditor, range: vscode.Range, table: Table, stringifier: Stringifier) {
     // Add a new row
     table.addRow(RowType.Data, new Array(table.cols.length).fill(''));
     
-    // Format the table with the new row
-    const formattedText = stringifier.stringify(table);
-    console.log('Debug: Formatted text with new row:', JSON.stringify(formattedText));
-    console.log('Debug: Original range:', range.start.line, range.start.character, 'to', range.end.line, range.end.character);
+    // Detect indentation from the first line of the table
+    const firstLine = editor.document.lineAt(range.start.line);
+    const indentMatch = firstLine.text.match(/^(\s*)/);
+    const indentation = indentMatch ? indentMatch[1] : '';
     
-    // Get the original text that will be replaced
-    const originalText = editor.document.getText(range);
-    console.log('Debug: Original text being replaced:', JSON.stringify(originalText));
+    // Format the table with the new row and preserved indentation
+    const formattedText = stringifier.stringifyWithIndent(table, indentation);
     
-    // For single-line tables, always ensure we capture the entire line
+    // Optimize range adjustment for single-line tables
     let adjustedRange = range;
     if (range.start.line === range.end.line) {
-        const line = editor.document.lineAt(range.start.line);
-        const lineText = line.text;
-        console.log('Debug: Full line text:', JSON.stringify(lineText));
-        
-        // Check if this looks like a table line (starts with |)
-        const trimmedText = lineText.trim();
-        if (trimmedText.startsWith('|')) {
-            console.log('Debug: Detected table line, adjusting range to cover entire line');
+        const lineText = editor.document.lineAt(range.start.line).text;
+        if (lineText.includes('|')) {
             adjustedRange = new vscode.Range(
                 new vscode.Position(range.start.line, 0),
                 new vscode.Position(range.end.line, lineText.length)
             );
-            console.log('Debug: Adjusted range:', adjustedRange.start.line, adjustedRange.start.character, 'to', adjustedRange.end.line, adjustedRange.end.character);
         }
     }
     
     // Replace the table text
-    const editResult = await editor.edit(e => e.replace(adjustedRange, formattedText));
-
-    console.log('Debug: Edit result:', editResult);
+    await editor.edit(e => e.replace(adjustedRange, formattedText));
     
-    // Wait a moment for the document to be updated
-    await new Promise(resolve => setTimeout(resolve, 50));
-    
-    // Calculate the new range that should contain the updated table
+    // Efficiently calculate new cursor position
     const formattedLines = formattedText.split('\n');
-    const newEndLine = adjustedRange.start.line + formattedLines.length - 1;
-    const newEndChar = formattedLines[formattedLines.length - 1].length;
-    const updatedRange = new vscode.Range(
-        adjustedRange.start,
-        new vscode.Position(newEndLine, newEndChar)
-    );
+    const lastLineIndex = formattedLines.length - 1;
+    const lastLine = formattedLines[lastLineIndex];
     
-    console.log('Debug: Updated range:', updatedRange.start.line, updatedRange.start.character, 'to', updatedRange.end.line, updatedRange.end.character);
+    // Position cursor at the start of the first cell in the new row
+    const newRowLine = table.startLine + lastLineIndex;
+    const firstCellPos = lastLine.indexOf('|') >= 0 ? lastLine.indexOf('|') + 2 : indentation.length + 2;
     
-    // Re-read the actual document content to ensure we have the correct state
-    const actualDocumentText = editor.document.getText(updatedRange);
-    console.log('Debug: Actual document text after update:', JSON.stringify(actualDocumentText));
-    
-    // Find the last data row (not separator) - use the formatted text for calculation
-    let lastDataRowIndex = -1;
-    for (let i = formattedLines.length - 1; i >= 0; i--) {
-        const line = formattedLines[i];
-        if (line.startsWith('|') && !line.includes('-')) {
-            lastDataRowIndex = i;
-            break;
-        }
-    }
-    
-    if (lastDataRowIndex === -1) {
-        console.log('Debug: Could not find data row, using last line');
-        lastDataRowIndex = formattedLines.length - 1;
-    }
-
-    const newRowLine = table.startLine + lastDataRowIndex;
-    const newRowText = formattedLines[lastDataRowIndex] || '';
-    
-    console.log('Debug: New row line:', newRowLine, 'text from formatted:', JSON.stringify(newRowText));
-    
-    // Verify the actual line at that position
-    if (newRowLine < editor.document.lineCount) {
-        const actualLineText = editor.document.lineAt(newRowLine).text;
-        console.log('Debug: Actual line text at position', newRowLine, ':', JSON.stringify(actualLineText));
-    } else {
-        console.log('Debug: New row line', newRowLine, 'is beyond document line count', editor.document.lineCount);
-    }
-    
-    // Find the first cell position
-    let firstCellPos = newRowText.indexOf('|') + 2;
-    if (firstCellPos >= newRowText.length - 1) {
-        console.log('Debug: Adjusting position to avoid end of line');
-        firstCellPos = Math.max(2, newRowText.indexOf('|') + 2);
-    }
-    
-    // Use debug utility for safer cursor movement
-    const success = debugCursorMovement(editor, newRowLine, firstCellPos);
-    if (!success) {
-        console.log('Debug: Cursor movement failed');
-    }
+    // Move cursor to the new row
+    const targetPosition = new vscode.Position(newRowLine, firstCellPos);
+    editor.selection = new vscode.Selection(targetPosition, targetPosition);
 }
 
 /**
  * Move cursor to the previous cell of table
  */
-export async function gotoPreviousCell(editor: vscode.TextEditor, _range: vscode.Range, table: Table) {
+export async function gotoPreviousCell(editor: vscode.TextEditor, range: vscode.Range, table: Table, stringifier: Stringifier) {
+    // Always format table for consistency on navigation
+    await formatUnderCursor(editor, range, table, stringifier);
+    
+    // Navigate to previous cell
     const nav = new TableNavigator(table, editor.document);
     const newPos = nav.previousCell(editor.selection.start);
     if (newPos) {
@@ -211,7 +225,13 @@ export async function formatUnderCursor(editor: vscode.TextEditor, range: vscode
     // Recalculate column widths to ensure proper alignment
     table.recalculateColumnWidths();
     
-    const newText = stringifier.stringify(table);
+    // Detect indentation from the first line of the table
+    const firstLine = editor.document.lineAt(range.start.line);
+    const indentMatch = firstLine.text.match(/^(\s*)/);
+    const indentation = indentMatch ? indentMatch[1] : '';
+    
+    // Generate table with preserved indentation
+    const newText = stringifier.stringifyWithIndent(table, indentation);
     const prevSel = editor.selection.start;
 
     await editor.edit(e => e.replace(range, newText));
@@ -223,6 +243,7 @@ export async function formatUnderCursor(editor: vscode.TextEditor, range: vscode
  */
 export async function moveColRight(editor: vscode.TextEditor, range: vscode.Range, table: Table, stringifier: Stringifier) {
     const rowCol = rowColFromPosition(table, editor.selection.start);
+    
     if (rowCol.col < 0) {
         vscode.window.showWarningMessage('Not in table data field');
         return;
@@ -233,18 +254,43 @@ export async function moveColRight(editor: vscode.TextEditor, range: vscode.Rang
         return;
     }
 
-    [table.cols[rowCol.col], table.cols[rowCol.col + 1]] = [table.cols[rowCol.col + 1], table.cols[rowCol.col]];
+    // Store the current row for cursor positioning
+    const currentRow = rowCol.row;
+    const sourceCol = rowCol.col;
+    const targetCol = rowCol.col + 1; // The column we're moving to
 
+    // Swap column metadata
+    [table.cols[sourceCol], table.cols[targetCol]] = [table.cols[targetCol], table.cols[sourceCol]];
+
+    // Swap column data in all rows
     table.rows.forEach((_, i) => {
-        const v1 = table.getAt(i, rowCol.col);
-        const v2 = table.getAt(i, rowCol.col + 1);
-        table.setAt(i, rowCol.col + 1, v1);
-        table.setAt(i, rowCol.col, v2);
+        const v1 = table.getAt(i, sourceCol);
+        const v2 = table.getAt(i, targetCol);
+        table.setAt(i, targetCol, v1);
+        table.setAt(i, sourceCol, v2);
     });
 
-    const newText = stringifier.stringify(table);
+    // Recalculate column widths after swap
+    table.recalculateColumnWidths();
+
+    // Detect indentation from the first line of the table
+    const firstLine = editor.document.lineAt(range.start.line);
+    const indentMatch = firstLine.text.match(/^(\s*)/);
+    const indentation = indentMatch ? indentMatch[1] : '';
+    
+    const newText = stringifier.stringifyWithIndent(table, indentation);
     await editor.edit(e => e.replace(range, newText));
-    await gotoNextCell(editor, range, table, stringifier);
+    
+    // Position cursor in the moved column (target column)
+    if (currentRow >= 0 && targetCol >= 0 && targetCol < table.cols.length) {
+        const targetRowLine = table.startLine + currentRow;
+        
+        // Get the actual updated line text after the edit
+        const updatedLineText = newText.split('\n')[currentRow];
+        const targetPosition = calculateColumnPosition(updatedLineText, targetCol, indentation);
+        
+        setSafeCursorPosition(editor, targetRowLine, targetPosition, indentation);
+    }
 }
 
 /**
@@ -252,6 +298,7 @@ export async function moveColRight(editor: vscode.TextEditor, range: vscode.Rang
  */
 export async function moveColLeft(editor: vscode.TextEditor, range: vscode.Range, table: Table, stringifier: Stringifier) {
     const rowCol = rowColFromPosition(table, editor.selection.start);
+    
     if (rowCol.col < 0) {
         vscode.window.showWarningMessage('Not in table data field');
         return;
@@ -262,18 +309,43 @@ export async function moveColLeft(editor: vscode.TextEditor, range: vscode.Range
         return;
     }
 
-    [table.cols[rowCol.col], table.cols[rowCol.col - 1]] = [table.cols[rowCol.col - 1], table.cols[rowCol.col]];
+    // Store the current row for cursor positioning
+    const currentRow = rowCol.row;
+    const sourceCol = rowCol.col;
+    const targetCol = rowCol.col - 1; // The column we're moving to
 
+    // Swap column metadata
+    [table.cols[sourceCol], table.cols[targetCol]] = [table.cols[targetCol], table.cols[sourceCol]];
+
+    // Swap column data in all rows
     table.rows.forEach((_, i) => {
-        const v1 = table.getAt(i, rowCol.col);
-        const v2 = table.getAt(i, rowCol.col - 1);
-        table.setAt(i, rowCol.col - 1, v1);
-        table.setAt(i, rowCol.col, v2);
+        const v1 = table.getAt(i, sourceCol);
+        const v2 = table.getAt(i, targetCol);
+        table.setAt(i, targetCol, v1);
+        table.setAt(i, sourceCol, v2);
     });
 
-    const newText = stringifier.stringify(table);
+    // Recalculate column widths after swap
+    table.recalculateColumnWidths();
+
+    // Detect indentation from the first line of the table
+    const firstLine = editor.document.lineAt(range.start.line);
+    const indentMatch = firstLine.text.match(/^(\s*)/);
+    const indentation = indentMatch ? indentMatch[1] : '';
+    
+    const newText = stringifier.stringifyWithIndent(table, indentation);
     await editor.edit(e => e.replace(range, newText));
-    await gotoPreviousCell(editor, range, table);
+    
+    // Position cursor in the moved column (target column)
+    if (currentRow >= 0 && targetCol >= 0 && targetCol < table.cols.length) {
+        const targetRowLine = table.startLine + currentRow;
+        
+        // Get the actual updated line text after the edit
+        const updatedLineText = newText.split('\n')[currentRow];
+        const targetPosition = calculateColumnPosition(updatedLineText, targetCol, indentation);
+        
+        setSafeCursorPosition(editor, targetRowLine, targetPosition, indentation);
+    }
 }
 
 /**
@@ -374,7 +446,13 @@ export async function nextRow(editor: vscode.TextEditor, range: vscode.Range, ta
 
     // Recalculate column widths and format
     table.recalculateColumnWidths();
-    await editor.edit(b => b.replace(range, stringifier.stringify(table)));
+    
+    // Detect indentation from the first line of the table
+    const firstLine = editor.document.lineAt(range.start.line);
+    const indentMatch = firstLine.text.match(/^(\s*)/);
+    const indentation = indentMatch ? indentMatch[1] : '';
+    
+    await editor.edit(b => b.replace(range, stringifier.stringifyWithIndent(table, indentation)));
 
     // Move to the next row, preserving the current column position
     const currentCol = rowColFromPosition(table, editor.selection.start).col;
@@ -390,7 +468,7 @@ export async function nextRow(editor: vscode.TextEditor, range: vscode.Range, ta
     if (nextRowLineIndex < table.rows.length && currentCol >= 0) {
         // Use the same logic as rowColFromPosition but in reverse
         // to find the exact position for the target column
-        let targetPosition = 1; // Start after first '|'
+        let targetPosition = indentation.length + 1; // Start after indentation + first '|'
         
         for (let i = 0; i < currentCol; i++) {
             const colWidth = table.cols[i].width;
@@ -410,34 +488,128 @@ export async function nextRow(editor: vscode.TextEditor, range: vscode.Range, ta
         if (nextRowPos) {
             editor.selection = new vscode.Selection(nextRowPos, nextRowPos);
         } else if (nextRowLineIndex < table.rows.length) {
-            // Fallback to start of next row
-            const fallbackPos = new vscode.Position(nextRowLine, 2);
+            // Fallback to start of next row with indentation
+            const fallbackPos = new vscode.Position(nextRowLine, indentation.length + 2);
             editor.selection = new vscode.Selection(fallbackPos, fallbackPos);
         }
     }
 }
 
 function rowColFromPosition(table: Table, position: vscode.Position): { row: number, col: number } {
-    const result = { row: -1, col: -1 };
-
-    result.row = position.line - table.startLine;
+    const result = { row: position.line - table.startLine, col: -1 };
     
-    // Calculate column based on actual character positions in Markdown table
-    let currentPos = 1; // Start after first '|'
+    // Early exit if row is invalid
+    if (result.row < 0 || result.row >= table.rows.length) {
+        result.row = -1;
+        return result;
+    }
     
-    for (let i = 0; i < table.cols.length; ++i) {
-        const colWidth = table.cols[i].width;
-        const cellStart = currentPos + 1; // Position after '| '
-        const cellEnd = cellStart + colWidth; // End of content area
-        
-        if (position.character >= cellStart && position.character <= cellEnd) {
-            result.col = i;
-            break;
+    // Get indentation for this table row to calculate correct positions
+    const editor = vscode.window.activeTextEditor;
+    let indentLength = 0;
+    let lineText = '';
+    if (editor && position.line < editor.document.lineCount) {
+        lineText = editor.document.lineAt(position.line).text;
+        const indentMatch = lineText.match(/^(\s*)/);
+        indentLength = indentMatch ? indentMatch[1].length : 0;
+    }
+    
+    const posChar = position.character;
+    
+    // Use a more reliable method: find all pipe positions and determine column from that
+    const pipePositions: number[] = [];
+    for (let i = indentLength; i < lineText.length; i++) {
+        if (lineText[i] === '|') {
+            pipePositions.push(i);
+        }
+    }
+    
+    // If we have pipes, determine column based on position relative to pipes
+    if (pipePositions.length > 0) {
+        for (let i = 0; i < pipePositions.length - 1; i++) {
+            const leftPipe = pipePositions[i];
+            const rightPipe = pipePositions[i + 1];
+            
+            // Check if cursor is between these two pipes (in this column)
+            if (posChar > leftPipe && posChar < rightPipe) {
+                result.col = i;
+                break;
+            }
         }
         
-        // Move to next cell: | + space + content + space
-        currentPos += 1 + colWidth + 1 + 1; // space + content + space + |
+        // Special case: if cursor is after the last pipe (last column)
+        if (result.col === -1 && pipePositions.length >= 2) {
+            const lastPipe = pipePositions[pipePositions.length - 1];
+            if (posChar > lastPipe) {
+                // But only if this looks like the end of the table
+                const remainingText = lineText.substring(lastPipe + 1).trim();
+                if (remainingText === '') {
+                    result.col = pipePositions.length - 2; // -2 because we count columns between pipes
+                }
+            }
+        }
+        
+        // Another special case: cursor exactly on a pipe - choose the column to the right
+        if (result.col === -1) {
+            for (let i = 0; i < pipePositions.length; i++) {
+                if (posChar === pipePositions[i]) {
+                    // Choose the column to the right of this pipe
+                    result.col = Math.min(i, table.cols.length - 1);
+                    break;
+                }
+            }
+        }
+    }
+    
+    // Final bounds check
+    if (result.col >= table.cols.length) {
+        result.col = table.cols.length - 1;
+    }
+    if (result.col < 0 && pipePositions.length > 0) {
+        result.col = 0; // Default to first column if we're in a table row
     }
 
     return result;
 }
+
+// Helper function for safe cursor positioning after column moves
+function setSafeCursorPosition(editor: vscode.TextEditor, targetRowLine: number, targetPosition: number, indentation: string): void {
+    if (editor && targetRowLine < editor.document.lineCount) {
+        const lineText = editor.document.lineAt(targetRowLine).text;
+        const maxPos = lineText.length;
+        
+        // Ensure position is within valid bounds
+        let safePosition = targetPosition;
+        if (safePosition > maxPos) {
+            // Fallback: position at a safe location within the line
+            safePosition = Math.max(indentation.length + 2, maxPos - 1);
+        }
+        safePosition = Math.min(safePosition, maxPos);
+        
+        const newPos = new vscode.Position(targetRowLine, safePosition);
+        editor.selection = new vscode.Selection(newPos, newPos);
+    }
+}
+
+/**
+ * Calculate accurate cursor position for a target column in a table row
+ */
+function calculateColumnPosition(lineText: string, targetCol: number, indentation: string): number {
+    // Find all pipe positions in the line
+    const pipePositions: number[] = [];
+    for (let i = 0; i < lineText.length; i++) {
+        if (lineText[i] === '|') {
+            pipePositions.push(i);
+        }
+    }
+    
+    // Calculate target position: position after "| " in the target column
+    if (pipePositions.length > targetCol) {
+        return pipePositions[targetCol] + 2; // After the target column's opening pipe + space
+    }
+    
+    // Fallback to default position
+    return indentation.length + 2;
+}
+
+// Debug helper function to verify column detection (temporary)

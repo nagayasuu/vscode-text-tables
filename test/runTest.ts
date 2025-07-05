@@ -1,6 +1,7 @@
 import * as path from 'path';
 
-import { runTests } from 'vscode-test';
+// Alternative import method for better compatibility
+const { runTests } = require('@vscode/test-electron');
 
 async function main() {
     try {
@@ -12,7 +13,7 @@ async function main() {
         // Passed to --extensionTestsPath
         const extensionTestsPath = path.resolve(__dirname, './index');
 
-        const testWorkspace = path.resolve(__dirname, '../../e2e')
+        const testWorkspace = path.resolve(__dirname, '../../e2e');
 
 
         // Download VS Code, unzip it and run the integration test
