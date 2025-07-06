@@ -2,6 +2,222 @@ import * as vscode from 'vscode';
 import { Table, RowType, TableNavigator, Stringifier, Parser } from './ttTable';
 
 /**
+ * Automatically detect if the cursor is currently in a table
+ */
+export function isInTable(editor: vscode.TextEditor): boolean {
+    const position = editor.selection.active;
+    const currentLineText = editor.document.lineAt(position.line).text.trim();
+    
+    // First check: current line must look like a table line
+    if (!isTableLine(currentLineText) && !isIncompleteTableLine(currentLineText)) {
+        return false;
+    }
+    
+    // Second check: look for table structure confirmation in immediate vicinity
+    return detectTableContext(editor, position);
+}
+
+/**
+ * Detect table context by checking surrounding lines for table structure
+ */
+function detectTableContext(editor: vscode.TextEditor, position: vscode.Position): boolean {
+    const lineCount = editor.document.lineCount;
+    const currentLine = position.line;
+    const currentLineText = editor.document.lineAt(currentLine).text.trim();
+    
+    // If current line is a clear table line, check for at least one other table line nearby
+    if (isTableLine(currentLineText)) {
+        // Look for other table lines within 1 line above or below
+        for (let i = Math.max(0, currentLine - 1); i <= Math.min(lineCount - 1, currentLine + 1); i++) {
+            if (i === currentLine) continue; // Skip current line
+            
+            const lineText = editor.document.lineAt(i).text.trim();
+            if (isTableLine(lineText)) {
+                return true; // Found another table line nearby
+            }
+        }
+        
+        // No other table lines found - might be an isolated line that looks like table
+        // Be more permissive for complete table lines that have proper structure
+        const pipeCount = (currentLineText.match(/\|/g) || []).length;
+        return pipeCount >= 3; // At least 3 pipes suggests real table structure
+    }
+    
+    // If current line is incomplete table line, be more strict
+    if (isIncompleteTableLine(currentLineText)) {
+        // For incomplete lines, require at least one complete table line nearby
+        for (let i = Math.max(0, currentLine - 1); i <= Math.min(lineCount - 1, currentLine + 1); i++) {
+            if (i === currentLine) continue;
+            
+            const lineText = editor.document.lineAt(i).text.trim();
+            if (isTableLine(lineText)) {
+                return true;
+            }
+        }
+        return false; // No table structure found
+    }
+    
+    return false;
+}
+
+/**
+ * Check if a line looks like a table row
+ */
+function isTableLine(lineText: string): boolean {
+    if (!lineText || !lineText.includes('|')) {
+        return false;
+    }
+    
+    const trimmed = lineText.trim();
+    
+    // Must start with | to be a table line
+    if (!trimmed.startsWith('|')) {
+        return false;
+    }
+    
+    // Count pipes
+    const pipeCount = (trimmed.match(/\|/g) || []).length;
+    
+    // Need at least 2 pipes for a minimal table (|content|)
+    if (pipeCount < 2) {
+        return false;
+    }
+    
+    // Check if it's a separator line (contains only |, -, :, and spaces)
+    const isSeparator = /^\|[\s\-:]*\|[\s\-:|\|]*$/.test(trimmed);
+    if (isSeparator) {
+        return true;
+    }
+    
+    // For data rows, must end with | to be considered complete
+    if (!trimmed.endsWith('|')) {
+        return false;
+    }
+    
+    // Split by pipes and check cell content
+    const cells = trimmed.slice(1, -1).split('|'); // Remove first and last |
+    
+    // All cells should contain reasonable content (no control characters, etc.)
+    for (const cell of cells) {
+        // Allow empty cells, text, numbers, spaces, basic punctuation
+        if (!/^[^|\n\r\t]*$/.test(cell)) {
+            return false;
+        }
+    }
+    
+    return true;
+}
+
+/**
+ * Check if a line looks like an incomplete table row that user is currently editing
+ */
+function isIncompleteTableLine(lineText: string): boolean {
+    if (!lineText || !lineText.includes('|')) {
+        return false;
+    }
+    
+    const trimmed = lineText.trim();
+    
+    // Must start with | but not end with | (otherwise it's complete)
+    if (!trimmed.startsWith('|') || trimmed.endsWith('|')) {
+        return false;
+    }
+    
+    // Must have at least 2 pipes to suggest table structure
+    const pipeCount = (trimmed.match(/\|/g) || []).length;
+    if (pipeCount < 2) {
+        return false;
+    }
+    
+    // Should not be a separator line
+    if (/^[\s\-:|\|]*$/.test(trimmed)) {
+        return false;
+    }
+    
+    // Split by pipes and check if there's actual content suggesting user input
+    const parts = trimmed.split('|');
+    let hasContent = false;
+    
+    for (let i = 1; i < parts.length; i++) { // Skip first empty part
+        const part = parts[i].trim();
+        if (part.length > 0 && /\w/.test(part)) { // Has word characters
+            hasContent = true;
+            break;
+        }
+    }
+    
+    return hasContent;
+}
+
+/**
+ * Format an incomplete table line like "|test|test" by adding closing pipe and proper spacing
+ */
+export async function formatIncompleteTableLine(editor: vscode.TextEditor, line: vscode.TextLine): Promise<void> {
+    const text = line.text;
+    
+    if (!text.startsWith('|') || text.endsWith('|')) {
+        return Promise.resolve();
+    }
+    
+    // Add closing pipe and format
+    const completed = text + '|';
+    const parts = completed.split('|');
+    
+    // Format each cell with proper spacing
+    const formattedParts: string[] = [''];
+    for (let i = 1; i < parts.length - 1; i++) {
+        const trimmed = parts[i].trim();
+        formattedParts.push(` ${trimmed} `);
+    }
+    formattedParts.push('');
+    
+    const formatted = formattedParts.join('|');
+    
+    await editor.edit(editBuilder => {
+        editBuilder.replace(line.range, formatted);
+    });
+}
+
+/**
+ * Format an incomplete table line into a proper table format (creates full table)
+ */
+async function formatIncompleteTableLineToTable(editor: vscode.TextEditor, stringifier: Stringifier) {
+    const position = editor.selection.active;
+    const currentLine = editor.document.lineAt(position.line);
+    const lineText = currentLine.text.trim();
+    
+    // Parse the incomplete table line
+    const parts = lineText.split('|').filter(part => part.trim() !== '');
+    
+    // Create a simple 2-row table (header + separator)
+    const table = new Table();
+    table.addRow(RowType.Data, parts.map(part => part.trim()));
+    table.addRow(RowType.Separator, new Array(parts.length).fill(''));
+    
+    // Format the table
+    const tableText = stringifier.stringify(table);
+    
+    // Replace the current line with the formatted table
+    const lineRange = new vscode.Range(
+        new vscode.Position(position.line, 0),
+        new vscode.Position(position.line, currentLine.text.length)
+    );
+    
+    await editor.edit(editBuilder => {
+        editBuilder.replace(lineRange, tableText);
+    });
+    
+    // Position cursor in the first cell of the second row (after separator)
+    const lines = tableText.split('\n');
+    if (lines.length >= 2) {
+        const secondRowLine = position.line + 2; // Skip separator row
+        const firstCellPos = lines[2] ? lines[2].indexOf('|') + 2 : 2; // After "| "
+        const newPosition = new vscode.Position(secondRowLine, firstCellPos);
+        editor.selection = new vscode.Selection(newPosition, newPosition);
+    }
+}
+
+/**
  * Create new table with specified rows and columns count in position of cursor
  */
 export async function createTable(rowsCount: number, colsCount: number, editor: vscode.TextEditor, stringifier: Stringifier) {
@@ -49,6 +265,11 @@ export async function createTable(rowsCount: number, colsCount: number, editor: 
  * Swap row under cursor with row below
  */
 export async function moveRowDown(editor: vscode.TextEditor, _range: vscode.Range, table: Table) {
+    // Check if cursor is in a table
+    if (!isInTable(editor)) {
+        return;
+    }
+    
     const rowNum = editor.selection.end.line - table.startLine;
     if (rowNum >= table.rows.length - 1) {
         vscode.window.showWarningMessage('Cannot move row further');
@@ -61,6 +282,11 @@ export async function moveRowDown(editor: vscode.TextEditor, _range: vscode.Rang
  * Swap row under cursor with row above
  */
 export async function moveRowUp(editor: vscode.TextEditor, _range: vscode.Range, table: Table) {
+    // Check if cursor is in a table
+    if (!isInTable(editor)) {
+        return;
+    }
+    
     const rowNum = editor.selection.start.line - table.startLine;
     if (rowNum <= 0) {
         vscode.window.showWarningMessage('Cannot move row further');
@@ -75,12 +301,27 @@ export async function moveRowUp(editor: vscode.TextEditor, _range: vscode.Range,
 export async function gotoNextCell(editor: vscode.TextEditor, range: vscode.Range, table: Table,
     stringifier: Stringifier) {
 
-    // Fast path: check if we're on a valid table line
     const currentLine = editor.document.lineAt(editor.selection.start.line);
     const currentLineText = currentLine.text;
     
+    // Check if we're in a table context
+    if (!isInTable(editor)) {
+        // Check if current line looks like an incomplete table that should be formatted
+        const trimmed = currentLineText.trim();
+        if (isIncompleteTableLine(trimmed)) {
+            // Format the incomplete table line
+            await formatIncompleteTableLineToTable(editor, stringifier);
+            return;
+        }
+        
+        // Not in table context - execute normal tab behavior
+        await vscode.commands.executeCommand('type', { text: '\t' });
+        return;
+    }
+
     // Early exit for non-table lines
     if (!currentLineText.trim() || !currentLineText.includes('|')) {
+        await vscode.commands.executeCommand('type', { text: '\t' });
         return;
     }
 
@@ -207,6 +448,13 @@ async function addNewRowAndMoveCursor(editor: vscode.TextEditor, range: vscode.R
  * Move cursor to the previous cell of table
  */
 export async function gotoPreviousCell(editor: vscode.TextEditor, range: vscode.Range, table: Table, stringifier: Stringifier) {
+    // Check if we're in a table context
+    if (!isInTable(editor)) {
+        // Execute default shift+tab behavior
+        await vscode.commands.executeCommand('outdent');
+        return;
+    }
+    
     // Always format table for consistency on navigation
     await formatUnderCursor(editor, range, table, stringifier);
     
@@ -242,6 +490,11 @@ export async function formatUnderCursor(editor: vscode.TextEditor, range: vscode
  * Swap column under cursor with column on the right
  */
 export async function moveColRight(editor: vscode.TextEditor, range: vscode.Range, table: Table, stringifier: Stringifier) {
+    // Check if cursor is in a table
+    if (!isInTable(editor)) {
+        return;
+    }
+    
     const rowCol = rowColFromPosition(table, editor.selection.start);
     
     if (rowCol.col < 0) {
@@ -297,6 +550,11 @@ export async function moveColRight(editor: vscode.TextEditor, range: vscode.Rang
  * Swap column under cursor with column on the left
  */
 export async function moveColLeft(editor: vscode.TextEditor, range: vscode.Range, table: Table, stringifier: Stringifier) {
+    // Check if cursor is in a table
+    if (!isInTable(editor)) {
+        return;
+    }
+    
     const rowCol = rowColFromPosition(table, editor.selection.start);
     
     if (rowCol.col < 0) {
@@ -387,6 +645,13 @@ export function clearCell(editor: vscode.TextEditor, edit: vscode.TextEditorEdit
  * If cursor is in the first row (header), add a new column instead.
  */
 export async function nextRow(editor: vscode.TextEditor, range: vscode.Range, table: Table, stringifier: Stringifier) {
+    // Check if cursor is in a table - if not, execute normal Enter behavior
+    if (!isInTable(editor)) {
+        // Use VS Code's built-in type command for proper newline handling
+        await vscode.commands.executeCommand('type', { text: '\n' });
+        return;
+    }
+    
     const currentRowIndex = editor.selection.start.line - table.startLine;
     const isFirstRow = currentRowIndex === 0;
     

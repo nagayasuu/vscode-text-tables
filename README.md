@@ -6,21 +6,21 @@
 
 | Key | Command | Description |
 |-----|---------|-------------|
-| `Ctrl+Q Ctrl+Q` | `text-tables.tableModeOn/Off` | Toggle table mode ON/OFF |
 | `Ctrl+Q Ctrl+F` | `text-tables.formatUnderCursor` | Format table under cursor |
 | `Ctrl+Q Space` | `text-tables.clearCell` | Clear current cell |
 
-### Navigation (Table Mode Only)
+### Navigation (Automatic Table Detection)
 
-> **Note**: The following keybindings only work when `tableMode` is active
+> **Note**: The following keybindings work automatically when your cursor is inside a table in Markdown or Org-mode files
 
 | Key | Command | Description |
 |-----|---------|-------------|
-| `Tab` | `text-tables.gotoNextCell` | Move to next cell (creates new row if at last cell) |
+| `Tab` | `text-tables.gotoNextCell` | Move to next cell (creates new row if at last cell, formats incomplete table lines) |
 | `Shift+Tab` | `text-tables.gotoPreviousCell` | Move to previous cell |
 | `Enter` | `text-tables.nextRow` | Move to next row (creates new column if in header row) |
+| `Ctrl+Enter` | `text-tables.exitTableAndNewline` | Create a normal newline (exit table context) |
 
-### Table Editing (Table Mode Only)
+### Table Editing (Automatic Table Detection)
 
 | Key | Command | Description |
 |-----|---------|-------------|
@@ -38,25 +38,39 @@ The following commands are available through the Command Palette (`Ctrl+Shift+P`
 | `Text Tables: Enable` | Enable the extension |
 | `Text Tables: Create table` | Create a new table |
 
-### Conditional Keybindings
+### Automatic Table Detection
 
-The extension uses contextual keybindings based on the following conditions:
+The extension automatically detects when you're working with tables and enables table navigation features. No manual mode switching required!
 
-- **`when: tableMode`** - Only active when table mode is enabled
-- **`when: editorFocus && !tableMode`** - Only when editor is focused and table mode is disabled
-- **`when: editorFocus && tableMode`** - Only when editor is focused and table mode is enabled
+#### How it works:
+- **Automatic detection**: Extension detects table context based on current line and surrounding content
+- **Seamless operation**: Table commands work automatically when cursor is in a table
+- **Normal behavior**: When not in a table, keys work normally (Enter = newline, Tab = indent, etc.)
+
+#### Smart Table Formatting:
+- Type `|content|content` and press `Tab` → automatically formats into a proper table
+- `Enter` in tables creates new rows
+- `Enter` outside tables creates normal newlines
+- `Ctrl+Enter` in tables creates a normal newline (exits table context)
+- `Tab` in tables navigates to next cell
+- `Tab` outside tables works normally
 
 ### Usage Examples
 
-#### Enable Table Mode
-1. Place cursor inside a table
-2. Press `Ctrl+Q Ctrl+Q`
-3. "Table Mode" appears in the status bar
+#### Create a Table Automatically
+1. Type: `|Header 1|Header 2|`
+2. Press `Tab` → automatically formats into:
+   ```
+   | Header 1 | Header 2 |
+   |----------|----------|
+   |          |          |
+   ```
 
 #### Cell Navigation
 - `Tab`: Move to the right cell (creates new row if at the end)
-- `Shift+Tab`: Move to the left cell
+- `Shift+Tab`: Move to the left cell  
 - `Enter`: Move to the cell below (creates new column if in header row)
+- `Ctrl+Enter`: Create a normal newline (exit table context)
 
 #### Table Formatting
 - `Ctrl+Q Ctrl+F`: Format the current table with proper alignment
@@ -71,12 +85,13 @@ The extension uses contextual keybindings based on the following conditions:
 The extension behavior can be customized through settings:
 
 - `text-tables.mode`: `"markdown"` or `"org"` (default: `"markdown"`)
-- `text-tables.showStatus`: Show/hide status bar item (default: `true`)
 
 ### Recent Improvements
 
 This extension now includes enhanced support for:
+- **Fully automatic table detection** - No more manual tableMode switching!
+- **Smart context-aware navigation** - Enter and Tab work naturally inside and outside tables
+- **Automatic table formatting** - Type incomplete table lines and press Tab to format
 - Japanese and other wide characters (CJK)
-- Incomplete table rows
 - Accurate table range detection
 - Smart row/column addition
