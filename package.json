@@ -2,7 +2,7 @@
     "name": "vscode-text-tables",
     "displayName": "Text Tables",
     "description": "Work with text tables without pain",
-    "version": "0.1.6",
+    "version": "0.1.7",
     "icon": "icons/icon.png",
     "preview": false,
     "publisher": "RomanPeshkov",
@@ -26,8 +26,7 @@
     ],
     "activationEvents": [
         "onLanguage:markdown",
-        "onLanguage:org",
-        "onCommand:text-tables.enable"
+        "onLanguage:org"
     ],
     "main": "./out/src/extension",
     "contributes": {
@@ -40,14 +39,7 @@
                 "command": "text-tables.formatUnderCursor",
                 "title": "Text Tables: Format under cursor"
             },
-            {
-                "command": "text-tables.tableModeOn",
-                "title": "Text Tables: Enter table mode"
-            },
-            {
-                "command": "text-tables.tableModeOff",
-                "title": "Text Tables: Exit table mode"
-            },
+
             {
                 "command": "text-tables.gotoNextCell",
                 "title": "Text Tables: Go to next cell"
@@ -122,49 +114,39 @@
                 "key": "ctrl+q space"
             },
             {
-                "command": "text-tables.tableModeOn",
-                "key": "ctrl+q ctrl+q",
-                "when": "editorFocus && !tableMode"
-            },
-            {
-                "command": "text-tables.tableModeOff",
-                "key": "ctrl+q ctrl+q",
-                "when": "editorFocus && tableMode"
-            },
-            {
                 "command": "text-tables.gotoNextCell",
                 "key": "tab",
-                "when": "tableMode"
+                "when": "editorFocus && (editorLangId == markdown || editorLangId == org)"
             },
             {
                 "command": "text-tables.gotoPreviousCell",
                 "key": "shift+tab",
-                "when": "tableMode"
+                "when": "editorFocus && (editorLangId == markdown || editorLangId == org)"
             },
             {
                 "command": "text-tables.moveRowUp",
                 "key": "alt+up",
-                "when": "tableMode"
+                "when": "editorFocus && (editorLangId == markdown || editorLangId == org)"
             },
             {
                 "command": "text-tables.moveRowDown",
                 "key": "alt+down",
-                "when": "tableMode"
+                "when": "editorFocus && (editorLangId == markdown || editorLangId == org)"
             },
             {
                 "command": "text-tables.moveColRight",
                 "key": "ctrl+alt+right",
-                "when": "tableMode"
+                "when": "editorFocus && (editorLangId == markdown || editorLangId == org)"
             },
             {
                 "command": "text-tables.moveColLeft",
                 "key": "ctrl+alt+left",
-                "when": "tableMode"
+                "when": "editorFocus && (editorLangId == markdown || editorLangId == org)"
             },
             {
                 "command": "text-tables.nextRow",
                 "key": "enter",
-                "when": "tableMode"
+                "when": "editorFocus && (editorLangId == markdown || editorLangId == org)"
             }
         ]
     },

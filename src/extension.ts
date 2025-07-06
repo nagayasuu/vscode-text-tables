@@ -6,7 +6,7 @@ import * as cmd from './commands';
 import { OrgLocator, OrgParser, OrgStringifier } from './ttOrg';
 import { Locator, Parser, Stringifier, Table } from './ttTable';
 import { MarkdownLocator, MarkdownParser, MarkdownStringifier } from './ttMarkdown';
-import { registerContext, ContextType, enterContext, exitContext, restoreContext } from './context';
+import { restoreContext } from './context';
 import * as cfg from './configuration';
 
 let locator: Locator;
@@ -31,21 +31,8 @@ function loadConfiguration() {
 export function activate(ctx: vscode.ExtensionContext) {
     loadConfiguration();
 
-    const statusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left);
-    registerContext(ContextType.TableMode, '$(book) Table Mode', statusItem);
-
-    if (configuration.showStatus) {
-        statusItem.show();
-    }
-
     vscode.workspace.onDidChangeConfiguration(() => {
         loadConfiguration();
-
-        if (configuration.showStatus) {
-            statusItem.show();
-        } else {
-            statusItem.hide();
-        }
     });
 
     vscode.window.onDidChangeActiveTextEditor(e => {
@@ -57,11 +44,6 @@ export function activate(ctx: vscode.ExtensionContext) {
     ctx.subscriptions.push(vscode.commands.registerCommand('text-tables.enable', () => {
         vscode.window.showInformationMessage('Text tables enabled!');
     }));
-
-    ctx.subscriptions.push(vscode.commands.registerTextEditorCommand('text-tables.tableModeOn',
-        (e) => enterContext(e, ContextType.TableMode)));
-    ctx.subscriptions.push(vscode.commands.registerTextEditorCommand('text-tables.tableModeOff',
-        (e) => exitContext(e, ContextType.TableMode)));
 
     ctx.subscriptions.push(registerTableCommand('text-tables.moveRowDown', cmd.moveRowDown, {format: true}));
     ctx.subscriptions.push(registerTableCommand('text-tables.moveRowUp', cmd.moveRowUp, {format: true}));
@@ -124,6 +106,41 @@ function registerTableCommand(command: string, callback: TableCommandCallback, o
         const editor = vscode.window.activeTextEditor;
 
         if (editor === undefined) {
+            return;
+        }
+
+        // For navigation commands, check if we're in a table context first
+        if ((command.includes('nextRow') || command.includes('gotoNextCell') || command.includes('gotoPreviousCell')) && 
+            !cmd.isInTable(editor)) {
+            
+            // Special case: Tab on incomplete table line should format it
+            if (command.includes('gotoNextCell')) {
+                const currentLine = editor.document.lineAt(editor.selection.start.line);
+                const lineText = currentLine.text.trim();
+                
+                // Check if it's an incomplete table line like "|test|test"
+                if (lineText.startsWith('|') && !lineText.endsWith('|') && lineText.includes('|', 1)) {
+                    await cmd.formatIncompleteTableLine(editor, currentLine);
+                    return;
+                }
+                
+                // Execute normal tab behavior
+                await vscode.commands.executeCommand('type', { text: '\t' });
+                return;
+            }
+            
+            // For nextRow (Enter), execute normal newline
+            if (command.includes('nextRow')) {
+                await vscode.commands.executeCommand('type', { text: '\n' });
+                return;
+            }
+            
+            // For gotoPreviousCell (Shift+Tab), execute normal outdent
+            if (command.includes('gotoPreviousCell')) {
+                await vscode.commands.executeCommand('outdent');
+                return;
+            }
+            
             return;
         }
 
