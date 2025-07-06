@@ -878,3 +878,50 @@ function calculateColumnPosition(lineText: string, targetCol: number, indentatio
 }
 
 // Debug helper function to verify column detection (temporary)
+
+/**
+ * Intelligently handle Tab key based on table context
+ */
+export async function handleTabKey(editor: vscode.TextEditor, locator: any, parser: any, stringifier: any) {
+    const position = editor.selection.active;
+    const currentLineText = editor.document.lineAt(position.line).text.trim();
+    
+    // Check if current line is a table line
+    if (isTableLine(currentLineText) || isIncompleteTableLine(currentLineText)) {
+        // Check if we're actually in a table context
+        if (isInTable(editor)) {
+            // Execute table navigation
+            const tableRange = locator.locate(editor.document, position.line);
+            if (tableRange) {
+                let adjustedTableRange = tableRange;
+                if (tableRange.start.line === tableRange.end.line) {
+                    const line = editor.document.lineAt(tableRange.start.line);
+                    const lineText = line.text.trim();
+                    if (lineText.startsWith('|')) {
+                        adjustedTableRange = new vscode.Range(
+                            new vscode.Position(tableRange.start.line, 0),
+                            new vscode.Position(tableRange.end.line, line.text.length)
+                        );
+                    }
+                }
+                
+                const selectedText = editor.document.getText(adjustedTableRange);
+                const table = parser.parse(selectedText);
+                if (table) {
+                    table.startLine = adjustedTableRange.start.line;
+                    await gotoNextCell(editor, adjustedTableRange, table, stringifier);
+                    return;
+                }
+            }
+        }
+    }
+    
+    // Not in a table context - check for inline suggestions first
+    // Try to accept inline suggestion
+    try {
+        await vscode.commands.executeCommand('editor.action.inlineSuggest.commit');
+    } catch {
+        // No inline suggestion available, execute normal tab
+        await vscode.commands.executeCommand('type', { text: '\t' });
+    }
+}

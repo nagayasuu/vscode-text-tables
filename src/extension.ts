@@ -68,6 +68,11 @@ export function activate(ctx: vscode.ExtensionContext) {
         await cmd.nextRow(editor, range, table, stringifier);
     }));
 
+    // Intelligent Tab handler
+    ctx.subscriptions.push(vscode.commands.registerTextEditorCommand('text-tables.handleTabKey', async editor => {
+        await cmd.handleTabKey(editor, locator, parser, stringifier);
+    }));
+
     // Format table under cursor
     ctx.subscriptions.push(registerTableCommand('text-tables.formatUnderCursor',
         (editor, range, table) => cmd.formatUnderCursor(editor, range, table, stringifier)));
