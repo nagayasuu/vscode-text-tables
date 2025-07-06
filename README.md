@@ -52,7 +52,7 @@ The extension automatically detects when you're working with tables and enables 
 - `Enter` in tables creates new rows
 - `Enter` outside tables creates normal newlines
 - `Ctrl+Enter` in tables creates a normal newline (exits table context)
-- `Tab` in tables navigates to next cell
+- **`Tab` intelligently decides**: table navigation in tables, inline suggestion acceptance outside tables
 - `Tab` outside tables works normally
 
 ### Usage Examples
@@ -67,7 +67,7 @@ The extension automatically detects when you're working with tables and enables 
    ```
 
 #### Cell Navigation
-- `Tab`: Move to the right cell (creates new row if at the end)
+- **`Tab`: Intelligent behavior** - Table navigation when in table, inline suggestion acceptance otherwise
 - `Shift+Tab`: Move to the left cell  
 - `Enter`: Move to the cell below (creates new column if in header row)
 - `Ctrl+Enter`: Create a normal newline (exit table context)

@@ -80,6 +80,11 @@
                 "command": "text-tables.nextRow",
                 "title": "Next row",
                 "category": "Text Tables"
+            },
+            {
+                "command": "text-tables.handleTabKey",
+                "title": "Handle Tab key intelligently",
+                "category": "Text Tables"
             }
         ],
         "configuration": {
@@ -114,7 +119,7 @@
                 "key": "ctrl+q space"
             },
             {
-                "command": "text-tables.gotoNextCell",
+                "command": "text-tables.handleTabKey",
                 "key": "tab",
                 "when": "editorFocus && (editorLangId == markdown || editorLangId == org)"
             },
